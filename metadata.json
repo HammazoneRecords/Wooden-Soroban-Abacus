@@ -1,0 +1,6 @@
+{
+  "name": "Wooden Soroban Abacus",
+  "description": "An authentic, interactive wooden Japanese Soroban abacus featuring realistic wood grain textures, physical bead movement, Web Audio clicks, and calculation tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

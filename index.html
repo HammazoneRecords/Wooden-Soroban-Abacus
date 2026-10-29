@@ -1,0 +1,1719 @@
+<!doctype html>
+<!--
+================================================================================
+  JAPANESE SOROBAN ABACUS (そろばん) - INTERACTIVE WOODEN SIMULATION
+================================================================================
+  SOROBAN STRUCTURE & RECKONING LOGIC:
+  1. FRAME & BEAM (Hari 梁):
+     - Horizontal wooden beam divides the abacus into Upper and Lower decks.
+     - UPPER DECK (Ten 天 / Heaven): 1 bead per rod, worth 5 when ACTIVE.
+     - LOWER DECK (Chi 地 / Earth): 4 beads per rod, each worth 1 when ACTIVE.
+     - RECKONING PRINCIPLE: A bead only counts toward the total when pushed
+       TOWARD the beam! When resting away against the frame, its value is 0.
+  2. PHYSICAL CLICK & PUSH BEHAVIOUR:
+     - Upper bead (Heaven):
+       * Inactive (up against top frame): value = 0.
+       * Active (down against beam): value = 5.
+       * Clicking toggles between active and inactive states.
+     - Lower beads (Earth, numbered 1 to 4 from beam downward):
+       * Let L be the current count of active lower beads (0 to 4).
+       * When clicking bead i:
+         - If i > L: set L = i (pushes bead i and all beads above it up to beam).
+         - If i <= L: set L = i - 1 (pushes bead i and all beads below it down).
+       * Beads 1..L are stacked flush against the beam.
+       * Beads (L+1)..4 are stacked flush against the bottom frame.
+       * Simulates authentic physical multi-bead pushing with zero gaps.
+  3. VALUE CALCULATION:
+     - For each rod: rodValue = (upperActive ? 5 : 0) + L.
+     - Total = Sum of (rodValue * 10^rodIndex), where rodIndex 0 is rightmost rod.
+================================================================================
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wooden Soroban Abacus</title>
+  <meta name="description" content="An authentic, interactive wooden Japanese Soroban abacus featuring realistic wood grain textures, physical bead movement, Web Audio clicks, and calculation tools." />
+  <meta property="og:title" content="Wooden Soroban Abacus" />
+  <meta property="og:description" content="An authentic, interactive wooden Japanese Soroban abacus featuring realistic wood grain textures, physical bead movement, Web Audio clicks, and calculation tools." />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <style>
+    /* ==========================================================================
+       CSS Variables & Themes (Pure CSS Wood Finishes)
+       ========================================================================== */
+    :root, [data-theme="walnut"] {
+      --bg-surface: #14100c;
+      --bg-panel: rgba(28, 20, 15, 0.94);
+      --panel-border: rgba(94, 62, 44, 0.5);
+      --text-main: #f5ece2;
+      --text-muted: #ab9784;
+      --accent-gold: #e2b755;
+      --accent-gold-hover: #f3cb72;
+      
+      /* Wooden Frame (Dark Walnut) */
+      --frame-outer-shadow: 0 22px 55px rgba(0, 0, 0, 0.85), 0 8px 20px rgba(0,0,0,0.6);
+      --frame-bg: #2b170d;
+      --frame-gradient: linear-gradient(135deg, #3d2315 0%, #26140b 45%, #180b05 100%);
+      --frame-bevel: inset 0 2px 3px rgba(255, 230, 190, 0.2), inset 0 -2px 4px rgba(0, 0, 0, 0.85);
+      
+      /* Beam (Hari) */
+      --beam-bg: linear-gradient(180deg, #190c06 0%, #3a1f10 40%, #1f0f08 100%);
+      --beam-border-top: #4a2815;
+      --beam-border-bottom: #080301;
+      
+      /* Bamboo / Dark Wood Rods */
+      --rod-gradient: linear-gradient(to right, #170b04 0%, #442614 35%, #6a3e21 65%, #1d0e07 100%);
+      --rod-shadow: -1px 0 2px rgba(0,0,0,0.6), 1px 0 2px rgba(0,0,0,0.4);
+      
+      /* Bi-conical Boxwood Beads */
+      --bead-top: linear-gradient(to bottom, #d68f4e 0%, #bf7634 65%, #e29f5f 98%, #ffffff 100%);
+      --bead-bottom: linear-gradient(to bottom, #ffffff 0%, #b86e2e 4%, #7b4014 70%, #4a2107 100%);
+      --bead-ridge: rgba(255, 248, 230, 0.95);
+      --bead-hole: #170a03;
+      --bead-shadow: 0 4px 7px rgba(0, 0, 0, 0.65), 0 1px 2px rgba(0, 0, 0, 0.45);
+      --bead-hover-filter: brightness(1.14);
+      
+      /* Inlaid Inlay / Accents */
+      --dot-color: radial-gradient(circle at 35% 35%, #fffdf8 0%, #e6ddc0 60%, #998c6d 100%);
+      --brass-corner: linear-gradient(135deg, #e4be5f 0%, #9e791b 50%, #f7dc87 85%, #76550b 100%);
+
+      /* Geometry */
+      --bead-w: 46px;
+      --bead-h: 26px;
+      --rod-w: 58px;
+      --rod-thickness: 5px;
+      --upper-deck-h: 54px;
+      --lower-deck-h: 136px;
+      --beam-h: 20px;
+    }
+
+    [data-theme="hinoki"] {
+      --bg-surface: #17130e;
+      --bg-panel: rgba(38, 29, 18, 0.94);
+      --panel-border: rgba(125, 96, 56, 0.5);
+      --frame-bg: #5a3c1b;
+      --frame-gradient: linear-gradient(135deg, #745127 0%, #4f3314 45%, #331e07 100%);
+      --frame-bevel: inset 0 2px 3px rgba(255, 240, 210, 0.28), inset 0 -2px 4px rgba(0, 0, 0, 0.75);
+      --beam-bg: linear-gradient(180deg, #301d08 0%, #583918 40%, #2e1b07 100%);
+      --beam-border-top: #734c20;
+      --beam-border-bottom: #140b02;
+      --rod-gradient: linear-gradient(to right, #241405 0%, #573515 35%, #855526 65%, #2c1806 100%);
+      --bead-top: linear-gradient(to bottom, #f5c270 0%, #da9c3e 65%, #fad68a 98%, #ffffff 100%);
+      --bead-bottom: linear-gradient(to bottom, #ffffff 0%, #d49333 4%, #9d6219 70%, #5e3509 100%);
+    }
+
+    [data-theme="rosewood"] {
+      --bg-surface: #140d0e;
+      --bg-panel: rgba(34, 18, 20, 0.94);
+      --panel-border: rgba(110, 52, 60, 0.5);
+      --frame-bg: #3b1216;
+      --frame-gradient: linear-gradient(135deg, #521c22 0%, #320c10 45%, #1c0406 100%);
+      --frame-bevel: inset 0 2px 3px rgba(255, 210, 215, 0.24), inset 0 -2px 4px rgba(0, 0, 0, 0.8);
+      --beam-bg: linear-gradient(180deg, #1c0507 0%, #401519 40%, #22070a 100%);
+      --beam-border-top: #632329;
+      --beam-border-bottom: #0d0102;
+      --rod-gradient: linear-gradient(to right, #190507 0%, #43161b 35%, #6a282f 65%, #1f0709 100%);
+      --bead-top: linear-gradient(to bottom, #dc7c6a 0%, #c4523c 65%, #ee9483 98%, #ffffff 100%);
+      --bead-bottom: linear-gradient(to bottom, #ffffff 0%, #bd4730 4%, #802513 70%, #490e05 100%);
+    }
+
+    [data-theme="ebony"] {
+      --bg-surface: #101114;
+      --bg-panel: rgba(24, 25, 30, 0.94);
+      --panel-border: rgba(72, 77, 90, 0.5);
+      --frame-bg: #1c1d22;
+      --frame-gradient: linear-gradient(135deg, #2d2f38 0%, #1c1d22 45%, #101114 100%);
+      --frame-bevel: inset 0 2px 3px rgba(255, 255, 255, 0.22), inset 0 -2px 4px rgba(0, 0, 0, 0.9);
+      --beam-bg: linear-gradient(180deg, #121316 0%, #2b2c33 40%, #16171b 100%);
+      --beam-border-top: #424652;
+      --beam-border-bottom: #08080a;
+      --rod-gradient: linear-gradient(to right, #101114 0%, #34363e 35%, #505360 65%, #17181c 100%);
+      --bead-top: linear-gradient(to bottom, #f2e9dc 0%, #dccbb4 65%, #fdf7ee 98%, #ffffff 100%);
+      --bead-bottom: linear-gradient(to bottom, #ffffff 0%, #d4c3ab 4%, #9c8971 70%, #5d4d3a 100%);
+      --bead-ridge: rgba(255, 255, 255, 0.98);
+      --bead-hole: #211c15;
+    }
+
+    /* Responsive scaling for mobile devices */
+    @media (max-width: 860px) {
+      :root, [data-theme="walnut"], [data-theme="hinoki"], [data-theme="rosewood"], [data-theme="ebony"] {
+        --bead-w: 36px;
+        --bead-h: 21px;
+        --rod-w: 44px;
+        --rod-thickness: 4px;
+        --upper-deck-h: 46px;
+        --lower-deck-h: 112px;
+        --beam-h: 17px;
+      }
+    }
+
+    /* ==========================================================================
+       Global Resets & Layout
+       ========================================================================== */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      min-height: 100vh;
+      background-color: var(--bg-surface);
+      background-image: 
+        radial-gradient(ellipse at 50% 0%, rgba(100, 58, 30, 0.24) 0%, transparent 70%),
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.012) 0, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 12px);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 24px 16px 48px;
+      user-select: none;
+      touch-action: manipulation;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+      max-width: 900px;
+      width: 100%;
+    }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+
+    h1 {
+      font-size: 2.1rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-main);
+      text-shadow: 0 2px 4px rgba(0,0,0,0.6);
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .kanji-badge {
+      font-size: 1.15rem;
+      padding: 2px 10px;
+      background: rgba(226, 183, 85, 0.15);
+      border: 1px solid rgba(226, 183, 85, 0.35);
+      border-radius: 9999px;
+      color: var(--accent-gold);
+      font-weight: 500;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.4;
+    }
+
+    /* ==========================================================================
+       Display Readout Board
+       ========================================================================== */
+    .readout-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 16px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 1px 1px rgba(255,255,255,0.08);
+      backdrop-filter: blur(8px);
+      padding: 16px 24px;
+      margin-bottom: 24px;
+      width: 100%;
+      max-width: 960px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .readout-main {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .readout-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .readout-number-wrapper {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    .readout-number {
+      font-size: 2.8rem;
+      font-weight: 800;
+      font-family: ui-monospace, SFMono-Regular, "Roboto Mono", Menlo, Consolas, monospace;
+      color: var(--accent-gold);
+      line-height: 1;
+      text-shadow: 0 0 20px rgba(226, 183, 85, 0.35), 0 2px 4px rgba(0,0,0,0.8);
+      transition: color 150ms ease;
+    }
+
+    .readout-number.highlight-pop {
+      animation: popHighlight 180ms ease-out;
+    }
+
+    @keyframes popHighlight {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.035); color: #fff4d6; }
+      100% { transform: scale(1); }
+    }
+
+    .readout-kanji {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    .readout-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      appearance: none;
+      border: 1px solid var(--panel-border);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-main);
+      padding: 8px 14px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 120ms ease;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+    }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(226, 183, 85, 0.4);
+      transform: translateY(-1px);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .btn:focus-visible {
+      outline: 2px solid var(--accent-gold);
+      outline-offset: 2px;
+    }
+
+    .btn-gold {
+      background: linear-gradient(180deg, #d8ab48 0%, #aa8021 100%);
+      color: #170d04;
+      border-color: #f7d27e;
+      text-shadow: 0 1px 0 rgba(255,255,255,0.3);
+    }
+
+    .btn-gold:hover {
+      background: linear-gradient(180deg, #e6bc5a 0%, #be9128 100%);
+      color: #100802;
+    }
+
+    .btn-icon-only {
+      padding: 8px 10px;
+    }
+
+    /* ==========================================================================
+       Abacus Wrapper & Wooden Frame
+       ========================================================================== */
+    .abacus-scroll-container {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      padding: 12px 6px 24px;
+      display: flex;
+      justify-content: center;
+      scrollbar-width: thin;
+      scrollbar-color: var(--accent-gold) rgba(0,0,0,0.3);
+    }
+
+    .abacus-scroll-container::-webkit-scrollbar {
+      height: 8px;
+    }
+    .abacus-scroll-container::-webkit-scrollbar-track {
+      background: rgba(0,0,0,0.25);
+      border-radius: 4px;
+    }
+    .abacus-scroll-container::-webkit-scrollbar-thumb {
+      background: var(--accent-gold);
+      border-radius: 4px;
+    }
+
+    .soroban-frame {
+      position: relative;
+      background: var(--frame-bg);
+      background-image: var(--frame-gradient);
+      border-radius: 14px;
+      padding: 22px 26px 18px;
+      box-shadow: var(--frame-outer-shadow);
+      border: 3px solid rgba(0,0,0,0.5);
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      user-select: none;
+    }
+
+    /* Polished Wood Grain Overlay on Frame */
+    .soroban-frame::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: 12px;
+      background: repeating-linear-gradient(
+        90deg,
+        transparent 0,
+        transparent 6px,
+        rgba(255, 255, 255, 0.015) 7px,
+        transparent 14px
+      ),
+      repeating-linear-gradient(
+        0deg,
+        transparent 0,
+        transparent 28px,
+        rgba(0, 0, 0, 0.09) 32px,
+        transparent 60px
+      );
+      pointer-events: none;
+      box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.75);
+    }
+
+    /* Brass Corner Brackets */
+    .brass-corner {
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      background: var(--brass-corner);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.65), inset 0 1px 1px rgba(255,255,255,0.7);
+      pointer-events: none;
+      z-index: 10;
+    }
+    .brass-corner.tl {
+      top: 6px;
+      left: 6px;
+      border-top-left-radius: 6px;
+      clip-path: polygon(0 0, 100% 0, 100% 35%, 35% 35%, 35% 100%, 0 100%);
+    }
+    .brass-corner.tr {
+      top: 6px;
+      right: 6px;
+      border-top-right-radius: 6px;
+      clip-path: polygon(0 0, 100% 0, 100% 100%, 65% 100%, 65% 35%, 0 35%);
+    }
+    .brass-corner.bl {
+      bottom: 6px;
+      left: 6px;
+      border-bottom-left-radius: 6px;
+      clip-path: polygon(0 0, 35% 0, 35% 65%, 100% 65%, 100% 100%, 0 100%);
+    }
+    .brass-corner.br {
+      bottom: 6px;
+      right: 6px;
+      border-bottom-right-radius: 6px;
+      clip-path: polygon(65% 0, 100% 0, 100% 100%, 0 100%, 0 65%, 65% 65%);
+    }
+
+    /* Inner Abacus Board */
+    .abacus-board {
+      position: relative;
+      background: #0f0703;
+      border-radius: 6px;
+      box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.98), 0 1px 2px rgba(255,255,255,0.06);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 2px solid rgba(0,0,0,0.75);
+    }
+
+    /* Deck Sections */
+    .deck {
+      display: flex;
+      position: relative;
+    }
+
+    .upper-deck {
+      height: var(--upper-deck-h);
+    }
+
+    .lower-deck {
+      height: var(--lower-deck-h);
+    }
+
+    /* Horizontal Center Beam (Hari) */
+    .beam {
+      height: var(--beam-h);
+      background: var(--beam-bg);
+      border-top: 1px solid var(--beam-border-top);
+      border-bottom: 2px solid var(--beam-border-bottom);
+      box-shadow: 0 3px 6px rgba(0, 0, 0, 0.75), inset 0 1px 2px rgba(255,255,255,0.18);
+      display: flex;
+      position: relative;
+      z-index: 5;
+    }
+
+    /* Individual Column / Rod */
+    .rod-column {
+      width: var(--rod-w);
+      position: relative;
+      display: flex;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    /* Vertical Bamboo / Wooden Rod */
+    .rod-track {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: var(--rod-thickness);
+      background: var(--rod-gradient);
+      box-shadow: var(--rod-shadow);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* Reckoning Inlaid Dots ("Hoshi" 星) on the Beam */
+    .beam-segment {
+      width: var(--rod-w);
+      height: 100%;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .hoshi-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--dot-color);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.85), inset 0 1px 1px #fff;
+      cursor: pointer;
+      transition: transform 120ms ease;
+    }
+
+    .hoshi-dot:hover {
+      transform: scale(1.45);
+    }
+
+    .hoshi-dot.unit-marker {
+      box-shadow: 0 0 10px rgba(255, 230, 100, 0.95), inset 0 1px 1px #fff;
+      transform: scale(1.35);
+    }
+
+    /* ==========================================================================
+       Beads (Tama 珠) - Authentic Bi-conical Shape & 3D Lighting
+       ========================================================================== */
+    .bead {
+      position: absolute;
+      width: var(--bead-w);
+      height: var(--bead-h);
+      border-radius: 4px;
+      cursor: pointer;
+      z-index: 3;
+      transition: top 150ms cubic-bezier(0.2, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      outline: none;
+      /* Diamond / bi-conical profile clip */
+      clip-path: polygon(14% 0%, 86% 0%, 100% 50%, 86% 100%, 14% 100%, 0% 50%);
+      box-shadow: var(--bead-shadow);
+    }
+
+    /* Bead Facets & Specular Equator */
+    .bead::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 50%;
+      background: var(--bead-top);
+      border-bottom: 1px solid var(--bead-ridge);
+    }
+
+    .bead::after {
+      content: "";
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 50%;
+      background: var(--bead-bottom);
+      box-shadow: inset 0 -1px 2px rgba(0,0,0,0.45);
+    }
+
+    /* Center Drill Hole through which the rod runs */
+    .bead-hole {
+      position: relative;
+      width: calc(var(--rod-thickness) + 1px);
+      height: 100%;
+      background: var(--bead-hole);
+      box-shadow: inset 1px 0 2px rgba(0,0,0,0.9), inset -1px 0 2px rgba(0,0,0,0.9);
+      z-index: 2;
+      opacity: 0.95;
+    }
+
+    .bead:hover {
+      filter: var(--bead-hover-filter);
+    }
+
+    .bead:focus-visible {
+      filter: drop-shadow(0 0 6px var(--accent-gold));
+    }
+
+    /* Active State Subtle Highlighting */
+    .bead.is-active {
+      filter: drop-shadow(0 0 3px rgba(226, 183, 85, 0.45));
+    }
+
+    /* ==========================================================================
+       Rod Index & Place Value Readout Footer
+       ========================================================================== */
+    .rod-labels-footer {
+      display: flex;
+      margin-top: 8px;
+      width: 100%;
+      justify-content: center;
+    }
+
+    .rod-indicator {
+      width: var(--rod-w);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: color 120ms ease;
+    }
+
+    .rod-indicator:hover {
+      color: var(--accent-gold);
+    }
+
+    .rod-val-badge {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-family: monospace;
+      color: var(--text-muted);
+      transition: all 120ms ease;
+    }
+
+    .rod-indicator.has-value .rod-val-badge {
+      background: rgba(226, 183, 85, 0.2);
+      border-color: rgba(226, 183, 85, 0.5);
+      color: var(--accent-gold);
+      transform: scale(1.05);
+    }
+
+    .rod-place-name {
+      font-size: 0.65rem;
+      opacity: 0.75;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* ==========================================================================
+       Control Panels & Quick Arithmetic Tools
+       ========================================================================== */
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      width: 100%;
+      max-width: 960px;
+      margin-top: 16px;
+    }
+
+    .tool-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+    }
+
+    .tool-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .text-input {
+      flex: 1;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      color: var(--text-main);
+      padding: 8px 12px;
+      font-size: 0.95rem;
+      font-family: monospace;
+      outline: none;
+      transition: border-color 150ms ease;
+    }
+
+    .text-input:focus {
+      border-color: var(--accent-gold);
+    }
+
+    .quick-calc-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .quick-btn {
+      padding: 6px 10px;
+      font-size: 0.8rem;
+      font-family: monospace;
+      font-weight: 600;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--panel-border);
+      color: var(--text-main);
+      cursor: pointer;
+      transition: all 120ms ease;
+    }
+
+    .quick-btn:hover {
+      background: rgba(226, 183, 85, 0.18);
+      border-color: var(--accent-gold);
+      color: var(--accent-gold);
+    }
+
+    .select-dropdown {
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+      color: var(--text-main);
+      padding: 6px 10px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      outline: none;
+    }
+
+    .select-dropdown:focus {
+      border-color: var(--accent-gold);
+    }
+
+    /* ==========================================================================
+       Tutorial / Guide Collapsible
+       ========================================================================== */
+    .guide-card {
+      width: 100%;
+      max-width: 960px;
+      margin-top: 20px;
+      background: var(--bg-panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .guide-header {
+      padding: 14px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--text-main);
+      transition: background 120ms ease;
+    }
+
+    .guide-header:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .guide-content {
+      padding: 0 20px 20px;
+      display: none;
+      font-size: 0.9rem;
+      line-height: 1.6;
+      color: var(--text-muted);
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .guide-card.is-open .guide-content {
+      display: block;
+      padding-top: 16px;
+    }
+
+    .guide-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-top: 10px;
+    }
+
+    .guide-box {
+      background: rgba(0, 0, 0, 0.25);
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .guide-box strong {
+      color: var(--accent-gold);
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    kbd {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      padding: 2px 5px;
+      font-size: 0.8em;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="title-row">
+      <h1>
+        <span>Japanese Soroban</span>
+        <span class="kanji-badge">そろばん</span>
+      </h1>
+    </div>
+    <p class="subtitle">
+      A handcrafted wooden 1:4 abacus with authentic physical bead pushing physics and acoustic wood clacks.
+    </p>
+  </header>
+
+  <!-- Readout Board -->
+  <section class="readout-card" aria-label="Abacus Value Readout">
+    <div class="readout-main">
+      <span class="readout-label">Calculated Value (合計値)</span>
+      <div class="readout-number-wrapper">
+        <span id="readoutValue" class="readout-number" aria-live="polite">0</span>
+        <span id="readoutKanji" class="readout-kanji">零 (Zero)</span>
+      </div>
+    </div>
+
+    <div class="readout-actions">
+      <button id="btnReset" class="btn btn-gold" title="Clear all beads to zero (C or Backspace)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+          <path d="M3 3v5h5"/>
+        </svg>
+        <span>Reset (Clear)</span>
+      </button>
+
+      <button id="btnRandom" class="btn" title="Set a random number on the abacus (R)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect width="18" height="18" x="3" y="3" rx="2"/>
+          <circle cx="8" cy="8" r="1.5"/>
+          <circle cx="16" cy="16" r="1.5"/>
+          <circle cx="12" cy="12" r="1.5"/>
+        </svg>
+        <span>Random</span>
+      </button>
+
+      <button id="btnDownload" class="btn" title="Download complete standalone HTML file">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        <span>Download HTML</span>
+      </button>
+
+      <button id="btnSoundToggle" class="btn btn-icon-only" title="Toggle wooden clack sound" aria-label="Toggle sound effects">
+        <span id="soundIcon">🔊</span>
+      </button>
+
+      <button id="btnDigitsToggle" class="btn btn-icon-only" title="Toggle column digit badges" aria-label="Toggle digit badges">
+        <span id="digitsIcon">🔢</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- Abacus Frame Container -->
+  <main class="abacus-scroll-container" tabindex="0" aria-label="Interactive Wooden Soroban">
+    <div class="soroban-frame" id="sorobanFrame">
+      <!-- Brass Corner Accents -->
+      <div class="brass-corner tl"></div>
+      <div class="brass-corner tr"></div>
+      <div class="brass-corner bl"></div>
+      <div class="brass-corner br"></div>
+
+      <!-- Wooden Abacus Board with Upper Deck, Beam, and Lower Deck -->
+      <div class="abacus-board" id="abacusBoard">
+        <!-- Upper Deck (Heaven / 1 Bead = 5) -->
+        <div class="deck upper-deck" id="upperDeck" role="region" aria-label="Upper Deck - Heaven beads (value 5)">
+          <!-- Rod columns dynamically inserted -->
+        </div>
+
+        <!-- Horizontal Beam (Hari) with Inlaid Hoshi Dots -->
+        <div class="beam" id="beam" role="separator" aria-label="Beam divider">
+          <!-- Beam segments dynamically inserted -->
+        </div>
+
+        <!-- Lower Deck (Earth / 4 Beads = 1 each) -->
+        <div class="deck lower-deck" id="lowerDeck" role="region" aria-label="Lower Deck - Earth beads (value 1 each)">
+          <!-- Rod columns dynamically inserted -->
+        </div>
+      </div>
+
+      <!-- Place Value / Rod Value Indicators -->
+      <div class="rod-labels-footer" id="rodLabelsFooter" aria-label="Column place values">
+        <!-- Rod indicators dynamically inserted -->
+      </div>
+    </div>
+  </main>
+
+  <!-- Interactive Utility Tools & Quick Arithmetic -->
+  <section class="tools-grid">
+    <!-- Direct Value Setter -->
+    <div class="tool-card">
+      <div class="tool-title">
+        <span>Enter Number</span>
+        <small style="font-weight: normal; opacity: 0.7;">Auto-moves beads</small>
+      </div>
+      <div class="input-row">
+        <input 
+          type="text" 
+          id="customNumberInput" 
+          class="text-input" 
+          placeholder="e.g. 2026 or 98765" 
+          inputmode="numeric"
+          pattern="[0-9]*" 
+          aria-label="Direct number entry"
+        />
+        <button id="btnApplyNumber" class="btn btn-gold">Set</button>
+      </div>
+    </div>
+
+    <!-- Quick Addition & Subtraction Practice -->
+    <div class="tool-card">
+      <div class="tool-title">
+        <span>Quick Arithmetic</span>
+        <small style="font-weight: normal; opacity: 0.7;">Watch carries occur</small>
+      </div>
+      <div class="quick-calc-group">
+        <button class="quick-btn" data-op="+1">+ 1</button>
+        <button class="quick-btn" data-op="+5">+ 5</button>
+        <button class="quick-btn" data-op="+10">+ 10</button>
+        <button class="quick-btn" data-op="+100">+ 100</button>
+        <button class="quick-btn" data-op="-1">- 1</button>
+        <button class="quick-btn" data-op="-5">- 5</button>
+        <button class="quick-btn" data-op="-10">- 10</button>
+        <button class="quick-btn" data-op="-100">- 100</button>
+      </div>
+    </div>
+
+    <!-- Appearance & Rod Settings -->
+    <div class="tool-card">
+      <div class="tool-title">
+        <span>Customization</span>
+        <small style="font-weight: normal; opacity: 0.7;">Wood &amp; Rods</small>
+      </div>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <div style="display: flex; flex-direction: column; gap: 4px; flex: 1;">
+          <label style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase;">Wood Theme</label>
+          <select id="themeSelect" class="select-dropdown">
+            <option value="walnut">Dark Walnut (黒胡桃)</option>
+            <option value="hinoki">Japanese Hinoki (檜)</option>
+            <option value="rosewood">Rosewood / Shitan (紫檀)</option>
+            <option value="ebony">Ebony &amp; Ivory (黒檀)</option>
+          </select>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 4px; flex: 1;">
+          <label style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase;">Rod Count</label>
+          <select id="rodCountSelect" class="select-dropdown">
+            <option value="7">7 Rods (Beginner)</option>
+            <option value="9">9 Rods (Compact)</option>
+            <option value="13" selected>13 Rods (Standard)</option>
+            <option value="17">17 Rods (Extended)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive Guide & Soroban Rules -->
+  <section class="guide-card" id="guideCard">
+    <div class="guide-header" id="guideHeader" role="button" tabindex="0" aria-expanded="false">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 1.1rem;">📖</span>
+        <span>How to Use the Soroban (Japanese Abacus Guide)</span>
+      </div>
+      <span id="guideArrow" style="transition: transform 180ms ease;">▼</span>
+    </div>
+    <div class="guide-content">
+      <p>
+        The Japanese Soroban (そろばん) is a base-10 counting frame perfected in the 1930s with a <strong>1:4 bead ratio</strong>.
+      </p>
+      <div class="guide-grid">
+        <div class="guide-box">
+          <strong>1. Active vs Inactive</strong>
+          Beads only have a numerical value when they are touching the <strong>beam</strong> (the center horizontal bar). Beads resting against the outer top or bottom frame have zero value.
+        </div>
+        <div class="guide-box">
+          <strong>2. Heaven Bead (Upper)</strong>
+          The single upper bead is worth <strong>5</strong> when pushed down against the beam. When pushed up away from the beam, it is inactive (0).
+        </div>
+        <div class="guide-box">
+          <strong>3. Earth Beads (Lower)</strong>
+          The 4 lower beads are worth <strong>1</strong> each when pushed up against the beam. Clicking any lower bead pushes all beads above or below it to prevent gaps, mirroring physical wood pushing.
+        </div>
+        <div class="guide-box">
+          <strong>4. Unit Dots (Hoshi 星)</strong>
+          The inlaid white dots on the beam mark unit intervals (usually every 3 rods, like thousands separators). Click any dot to choose your active unit rod!
+        </div>
+      </div>
+      <p style="margin-top: 14px; font-size: 0.85rem; opacity: 0.8;">
+        <strong>Keyboard Navigation:</strong> Use <kbd>Tab</kbd> or <kbd>Arrow Keys</kbd> to focus beads. Press <kbd>Space</kbd> or <kbd>Enter</kbd> to move beads. Use <kbd>C</kbd> to reset and <kbd>R</kbd> for random numbers.
+      </p>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       Vanilla JavaScript Logic
+       ========================================================================== -->
+  <script>
+    (function () {
+      'use strict';
+
+      /* ------------------------------------------------------------------------
+         Configuration Constants & State
+         ------------------------------------------------------------------------ */
+      let NUM_RODS = 13; // Configurable standard Soroban rod count
+      let showDigitBadges = true;
+      let soundEnabled = true;
+      let audioCtx = null;
+      let unitRodIndex = 0; // Rightmost rod (index 0) is default unit rod
+
+      // State: Array of objects for each rod from rod 0 (rightmost, ones) up to NUM_RODS-1
+      // rodsState[rodIndex]: { upperActive: boolean, lowerActiveCount: number (0..4) }
+      let rodsState = [];
+
+      /* Dimensions resolver (handles CSS variable responsive changes) */
+      function getDimensions() {
+        const rootStyle = getComputedStyle(document.documentElement);
+        const beadH = parseFloat(rootStyle.getPropertyValue('--bead-h')) || 26;
+        const upperDeckH = parseFloat(rootStyle.getPropertyValue('--upper-deck-h')) || 54;
+        const lowerDeckH = parseFloat(rootStyle.getPropertyValue('--lower-deck-h')) || 136;
+        return {
+          beadH,
+          upperTravel: upperDeckH - beadH,
+          lowerDeckH
+        };
+      }
+
+      /* DOM Elements */
+      const upperDeckEl = document.getElementById('upperDeck');
+      const lowerDeckEl = document.getElementById('lowerDeck');
+      const beamEl = document.getElementById('beam');
+      const rodLabelsFooterEl = document.getElementById('rodLabelsFooter');
+      const readoutValueEl = document.getElementById('readoutValue');
+      const readoutKanjiEl = document.getElementById('readoutKanji');
+      const btnReset = document.getElementById('btnReset');
+      const btnRandom = document.getElementById('btnRandom');
+      const btnDownload = document.getElementById('btnDownload');
+      const btnSoundToggle = document.getElementById('btnSoundToggle');
+      const soundIcon = document.getElementById('soundIcon');
+      const btnDigitsToggle = document.getElementById('btnDigitsToggle');
+      const digitsIcon = document.getElementById('digitsIcon');
+      const themeSelect = document.getElementById('themeSelect');
+      const rodCountSelect = document.getElementById('rodCountSelect');
+      const customNumberInput = document.getElementById('customNumberInput');
+      const btnApplyNumber = document.getElementById('btnApplyNumber');
+      const guideCard = document.getElementById('guideCard');
+      const guideHeader = document.getElementById('guideHeader');
+
+      /* ------------------------------------------------------------------------
+         Audio Synthesis - Physical Wooden Clack (Web Audio API)
+         ------------------------------------------------------------------------ */
+      function playWoodClick(beadCount = 1, isUpper = false) {
+        if (!soundEnabled) return;
+        try {
+          if (!audioCtx) {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (AudioContextClass) {
+              audioCtx = new AudioContextClass();
+            }
+          }
+          if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume();
+          }
+          if (!audioCtx) return;
+
+          const now = audioCtx.currentTime;
+
+          // 1. Transient noise burst for wooden contact click
+          const bufferSize = Math.floor(audioCtx.sampleRate * 0.032);
+          const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (audioCtx.sampleRate * 0.005));
+          }
+          const noise = audioCtx.createBufferSource();
+          noise.buffer = buffer;
+
+          const filter = audioCtx.createBiquadFilter();
+          filter.type = 'bandpass';
+          filter.frequency.value = isUpper ? 1450 : (1650 - beadCount * 80);
+          filter.Q.value = 3.2;
+
+          const noiseGain = audioCtx.createGain();
+          noiseGain.gain.setValueAtTime(0.24, now);
+          noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.032);
+
+          noise.connect(filter);
+          filter.connect(noiseGain);
+          noiseGain.connect(audioCtx.destination);
+          noise.start(now);
+
+          // 2. Resonant hardwood body tone
+          const osc = audioCtx.createOscillator();
+          const oscGain = audioCtx.createGain();
+          osc.type = 'sine';
+          const baseFreq = isUpper ? 680 : (790 + (Math.random() * 50 - 25));
+          osc.frequency.setValueAtTime(baseFreq, now);
+          osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.65, now + 0.04);
+
+          oscGain.gain.setValueAtTime(0.32, now);
+          oscGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.042);
+
+          osc.connect(oscGain);
+          oscGain.connect(audioCtx.destination);
+          osc.start(now);
+          osc.stop(now + 0.045);
+        } catch (err) {
+          // Ignore Web Audio errors on restricted platforms
+        }
+      }
+
+      /* Play subtle multi-bead whoosh when clearing or setting */
+      function playSweepSound() {
+        if (!soundEnabled) return;
+        try {
+          if (!audioCtx) {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (AudioContextClass) audioCtx = new AudioContextClass();
+          }
+          if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+          if (!audioCtx) return;
+
+          const now = audioCtx.currentTime;
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(320, now);
+          osc.frequency.linearRampToValueAtTime(840, now + 0.12);
+          osc.frequency.exponentialRampToValueAtTime(180, now + 0.22);
+
+          gain.gain.setValueAtTime(0.18, now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now);
+          osc.stop(now + 0.23);
+        } catch (e) {}
+      }
+
+      /* ------------------------------------------------------------------------
+         State Management & Value Calculation
+         ------------------------------------------------------------------------ */
+      function initializeState(count) {
+        NUM_RODS = count;
+        rodsState = [];
+        for (let r = 0; r < NUM_RODS; r++) {
+          rodsState.push({
+            upperActive: false,
+            lowerActiveCount: 0
+          });
+        }
+      }
+
+      // Calculate single rod value (0..9)
+      function getRodValue(rodIndex) {
+        const rod = rodsState[rodIndex];
+        if (!rod) return 0;
+        return (rod.upperActive ? 5 : 0) + rod.lowerActiveCount;
+      }
+
+      // Calculate total numerical value across all rods
+      // rightmost rod index 0 has multiplier 10^0 = 1
+      function calculateTotalValue() {
+        let total = BigInt(0);
+        let multiplier = BigInt(1);
+        for (let r = 0; r < NUM_RODS; r++) {
+          const val = BigInt(getRodValue(r));
+          total += val * multiplier;
+          multiplier *= BigInt(10);
+        }
+        return total;
+      }
+
+      // Format BigInt with commas
+      function formatNumberWithCommas(num) {
+        return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      }
+
+      // Convert number to Japanese Kanji reading
+      function numberToKanji(num) {
+        if (num === BigInt(0)) return '零 (Zero)';
+        const formatted = formatNumberWithCommas(num);
+        return `Value: ${formatted}`;
+      }
+
+      /* Update readout UI */
+      function updateReadout() {
+        const total = calculateTotalValue();
+        const formatted = formatNumberWithCommas(total);
+        readoutValueEl.textContent = formatted;
+        readoutKanjiEl.textContent = numberToKanji(total);
+
+        // Flash pop animation
+        readoutValueEl.classList.remove('highlight-pop');
+        void readoutValueEl.offsetWidth; // trigger reflow
+        readoutValueEl.classList.add('highlight-pop');
+
+        // Update each rod digit badge
+        for (let r = 0; r < NUM_RODS; r++) {
+          const val = getRodValue(r);
+          const badge = document.getElementById(`rodValBadge-${r}`);
+          const indicator = document.getElementById(`rodIndicator-${r}`);
+          if (badge) {
+            badge.textContent = showDigitBadges ? val : '•';
+          }
+          if (indicator) {
+            if (val > 0) {
+              indicator.classList.add('has-value');
+            } else {
+              indicator.classList.remove('has-value');
+            }
+          }
+        }
+      }
+
+      /* ------------------------------------------------------------------------
+         Physical Bead Positioning & Movement
+         ------------------------------------------------------------------------ */
+      // Get physical pixel position of upper bead
+      function getUpperBeadTop(isActive, dims) {
+        // Active: touches the beam at the bottom of upper deck
+        // Inactive: rests at the top of the upper deck against the frame
+        return isActive ? dims.upperTravel : 0;
+      }
+
+      // Get physical pixel position of lower bead j (1..4)
+      // j = 1 is closest to beam, j = 4 is farthest from beam
+      function getLowerBeadTop(j, activeCount, dims) {
+        // Active beads (j <= activeCount) stack up against the beam
+        if (j <= activeCount) {
+          return (j - 1) * dims.beadH;
+        }
+        // Inactive beads (j > activeCount) stack down at the bottom frame
+        // Bottom position: lowerDeckH - (4 - j + 1) * beadH
+        return dims.lowerDeckH - (4 - j + 1) * dims.beadH;
+      }
+
+      // Update DOM positions for a single rod
+      function renderRodBeads(rodIndex, animateSound = false, movedCount = 1, isUpper = false) {
+        const state = rodsState[rodIndex];
+        if (!state) return;
+        const dims = getDimensions();
+
+        // Upper bead
+        const upperBeadEl = document.getElementById(`bead-upper-${rodIndex}`);
+        if (upperBeadEl) {
+          const top = getUpperBeadTop(state.upperActive, dims);
+          upperBeadEl.style.top = `${top}px`;
+          upperBeadEl.classList.toggle('is-active', state.upperActive);
+          upperBeadEl.setAttribute('aria-checked', state.upperActive ? 'true' : 'false');
+          upperBeadEl.setAttribute(
+            'aria-label',
+            `Upper bead rod ${NUM_RODS - rodIndex}, ${state.upperActive ? 'active, value 5' : 'inactive, value 0'}`
+          );
+        }
+
+        // Lower beads 1..4
+        for (let j = 1; j <= 4; j++) {
+          const lowerBeadEl = document.getElementById(`bead-lower-${rodIndex}-${j}`);
+          if (lowerBeadEl) {
+            const top = getLowerBeadTop(j, state.lowerActiveCount, dims);
+            const isActive = j <= state.lowerActiveCount;
+            lowerBeadEl.style.top = `${top}px`;
+            lowerBeadEl.classList.toggle('is-active', isActive);
+            lowerBeadEl.setAttribute('aria-checked', isActive ? 'true' : 'false');
+            lowerBeadEl.setAttribute(
+              'aria-label',
+              `Lower bead ${j} rod ${NUM_RODS - rodIndex}, ${isActive ? 'active' : 'inactive'}`
+            );
+          }
+        }
+
+        if (animateSound) {
+          playWoodClick(movedCount, isUpper);
+        }
+      }
+
+      /* Re-render all rods (e.g. on resize or reset) */
+      function renderAllRods() {
+        for (let r = 0; r < NUM_RODS; r++) {
+          renderRodBeads(r, false);
+        }
+      }
+
+      /* ------------------------------------------------------------------------
+         Exact Soroban Click Interactions
+         ------------------------------------------------------------------------ */
+      // Click handler for Upper bead
+      function onUpperBeadClick(rodIndex) {
+        const state = rodsState[rodIndex];
+        state.upperActive = !state.upperActive;
+        renderRodBeads(rodIndex, true, 1, true);
+        updateReadout();
+      }
+
+      // Click handler for Lower bead i (1..4)
+      function onLowerBeadClick(rodIndex, beadIndex) {
+        const state = rodsState[rodIndex];
+        const L = state.lowerActiveCount;
+        let newL;
+
+        if (beadIndex > L) {
+          // Push bead i and all beads above it UP to the beam
+          newL = beadIndex;
+        } else {
+          // Push bead i and all beads below it DOWN away from the beam
+          newL = beadIndex - 1;
+        }
+
+        const countMoved = Math.abs(newL - L) || 1;
+        state.lowerActiveCount = newL;
+        renderRodBeads(rodIndex, true, countMoved, false);
+        updateReadout();
+      }
+
+      /* Set all beads to match an exact digit (0..9) on rod r */
+      function setRodDigit(rodIndex, digit, animateSound = false) {
+        const d = Math.max(0, Math.min(9, digit));
+        const upperActive = d >= 5;
+        const lowerCount = d % 5;
+        rodsState[rodIndex].upperActive = upperActive;
+        rodsState[rodIndex].lowerActiveCount = lowerCount;
+        renderRodBeads(rodIndex, animateSound, lowerCount || 1, upperActive);
+      }
+
+      /* Set whole abacus to a specific BigInt or Number */
+      function setAbacusValue(targetNum) {
+        let n = BigInt(targetNum);
+        if (n < BigInt(0)) n = BigInt(0);
+
+        for (let r = 0; r < NUM_RODS; r++) {
+          const digit = Number(n % BigInt(10));
+          setRodDigit(r, digit, false);
+          n = n / BigInt(10);
+        }
+        playSweepSound();
+        updateReadout();
+      }
+
+      /* Reset all rods to 0 */
+      function resetAbacus() {
+        for (let r = 0; r < NUM_RODS; r++) {
+          rodsState[r].upperActive = false;
+          rodsState[r].lowerActiveCount = 0;
+          renderRodBeads(r, false);
+        }
+        playSweepSound();
+        updateReadout();
+      }
+
+      /* Set random valid number */
+      function setRandomValue() {
+        for (let r = 0; r < NUM_RODS; r++) {
+          const randDigit = Math.floor(Math.random() * 10);
+          setRodDigit(r, randDigit, false);
+        }
+        playSweepSound();
+        updateReadout();
+      }
+
+      /* Quick arithmetic delta (+1, -10, etc.) */
+      function applyDelta(delta) {
+        const current = calculateTotalValue();
+        const next = current + BigInt(delta);
+        if (next < BigInt(0)) return;
+        setAbacusValue(next);
+      }
+
+      /* Keyboard Arrow Navigation */
+      function handleBeadArrowNav(e, currentRod, currentDeck, lowerIndex) {
+        let targetEl = null;
+        if (e.key === 'ArrowLeft') {
+          // Move left: rodIndex increases
+          const nextRod = Math.min(NUM_RODS - 1, currentRod + 1);
+          targetEl = currentDeck === 'upper'
+            ? document.getElementById(`bead-upper-${nextRod}`)
+            : document.getElementById(`bead-lower-${nextRod}-${lowerIndex}`);
+        } else if (e.key === 'ArrowRight') {
+          // Move right: rodIndex decreases
+          const nextRod = Math.max(0, currentRod - 1);
+          targetEl = currentDeck === 'upper'
+            ? document.getElementById(`bead-upper-${nextRod}`)
+            : document.getElementById(`bead-lower-${nextRod}-${lowerIndex}`);
+        } else if (e.key === 'ArrowDown') {
+          if (currentDeck === 'upper') {
+            targetEl = document.getElementById(`bead-lower-${currentRod}-1`);
+          } else if (lowerIndex < 4) {
+            targetEl = document.getElementById(`bead-lower-${currentRod}-${lowerIndex + 1}`);
+          }
+        } else if (e.key === 'ArrowUp') {
+          if (currentDeck === 'lower') {
+            if (lowerIndex === 1) {
+              targetEl = document.getElementById(`bead-upper-${currentRod}`);
+            } else {
+              targetEl = document.getElementById(`bead-lower-${currentRod}-${lowerIndex - 1}`);
+            }
+          }
+        }
+
+        if (targetEl) {
+          e.preventDefault();
+          targetEl.focus();
+        }
+      }
+
+      /* ------------------------------------------------------------------------
+         DOM Tree Construction for Abacus
+         ------------------------------------------------------------------------ */
+      function buildAbacusDOM() {
+        upperDeckEl.innerHTML = '';
+        beamEl.innerHTML = '';
+        lowerDeckEl.innerHTML = '';
+        rodLabelsFooterEl.innerHTML = '';
+
+        // Standard Soroban displays rods left (highest 10^n) to right (rodIndex 0, 10^0)
+        for (let col = 0; col < NUM_RODS; col++) {
+          const rodIndex = NUM_RODS - 1 - col; // rod 0 is rightmost
+
+          // 1. Upper Deck Column
+          const upperCol = document.createElement('div');
+          upperCol.className = 'rod-column';
+          upperCol.dataset.rod = rodIndex;
+
+          const upperTrack = document.createElement('div');
+          upperTrack.className = 'rod-track';
+          upperCol.appendChild(upperTrack);
+
+          const upperBead = document.createElement('div');
+          upperBead.className = 'bead';
+          upperBead.id = `bead-upper-${rodIndex}`;
+          upperBead.setAttribute('role', 'button');
+          upperBead.setAttribute('tabindex', '0');
+          upperBead.setAttribute('aria-label', `Upper bead rod ${col + 1}`);
+
+          const holeUp = document.createElement('div');
+          holeUp.className = 'bead-hole';
+          upperBead.appendChild(holeUp);
+
+          upperBead.addEventListener('click', () => onUpperBeadClick(rodIndex));
+          upperBead.addEventListener('keydown', (e) => {
+            if (e.key === ' ' || e.key === 'Enter') {
+              e.preventDefault();
+              onUpperBeadClick(rodIndex);
+            } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+              handleBeadArrowNav(e, rodIndex, 'upper', 0);
+            }
+          });
+
+          upperCol.appendChild(upperBead);
+          upperDeckEl.appendChild(upperCol);
+
+          // 2. Beam Segment with Reckoning Inlaid Dot (Hoshi)
+          const beamSeg = document.createElement('div');
+          beamSeg.className = 'beam-segment';
+          beamSeg.dataset.rod = rodIndex;
+
+          // Traditional unit dots: every 3 rods (e.g. rod 3, 6, 9, 12 from right)
+          if (rodIndex % 3 === 0 && rodIndex > 0 && rodIndex < NUM_RODS - 1) {
+            const dot = document.createElement('div');
+            dot.className = 'hoshi-dot';
+            dot.title = `Unit Reckoning Dot (Hoshi) - Rod 10^${rodIndex}`;
+            if (rodIndex === unitRodIndex) {
+              dot.classList.add('unit-marker');
+            }
+            dot.addEventListener('click', () => {
+              unitRodIndex = rodIndex;
+              document.querySelectorAll('.hoshi-dot').forEach(d => d.classList.remove('unit-marker'));
+              dot.classList.add('unit-marker');
+              playWoodClick(1, true);
+            });
+            beamSeg.appendChild(dot);
+          }
+          beamEl.appendChild(beamSeg);
+
+          // 3. Lower Deck Column
+          const lowerCol = document.createElement('div');
+          lowerCol.className = 'rod-column';
+          lowerCol.dataset.rod = rodIndex;
+
+          const lowerTrack = document.createElement('div');
+          lowerTrack.className = 'rod-track';
+          lowerCol.appendChild(lowerTrack);
+
+          // 4 Lower beads (j = 1 closest to beam, 4 farthest)
+          for (let j = 1; j <= 4; j++) {
+            const lowerBead = document.createElement('div');
+            lowerBead.className = 'bead';
+            lowerBead.id = `bead-lower-${rodIndex}-${j}`;
+            lowerBead.setAttribute('role', 'button');
+            lowerBead.setAttribute('tabindex', '0');
+            lowerBead.setAttribute('aria-label', `Lower bead ${j} rod ${col + 1}`);
+
+            const holeLow = document.createElement('div');
+            holeLow.className = 'bead-hole';
+            lowerBead.appendChild(holeLow);
+
+            lowerBead.addEventListener('click', () => onLowerBeadClick(rodIndex, j));
+            lowerBead.addEventListener('keydown', (e) => {
+              if (e.key === ' ' || e.key === 'Enter') {
+                e.preventDefault();
+                onLowerBeadClick(rodIndex, j);
+              } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                handleBeadArrowNav(e, rodIndex, 'lower', j);
+              }
+            });
+
+            lowerCol.appendChild(lowerBead);
+          }
+          lowerDeckEl.appendChild(lowerCol);
+
+          // 4. Rod indicator badge in footer
+          const indicator = document.createElement('div');
+          indicator.className = 'rod-indicator';
+          indicator.id = `rodIndicator-${rodIndex}`;
+          indicator.title = `Rod 10^${rodIndex} (Click to increment)`;
+
+          const badge = document.createElement('div');
+          badge.className = 'rod-val-badge';
+          badge.id = `rodValBadge-${rodIndex}`;
+          badge.textContent = '0';
+
+          const placeLabel = document.createElement('span');
+          placeLabel.className = 'rod-place-name';
+          if (rodIndex === 0) placeLabel.textContent = '1';
+          else if (rodIndex === 1) placeLabel.textContent = '10';
+          else if (rodIndex === 2) placeLabel.textContent = '100';
+          else if (rodIndex === 3) placeLabel.textContent = '1K';
+          else if (rodIndex === 4) placeLabel.textContent = '10K';
+          else if (rodIndex === 5) placeLabel.textContent = '100K';
+          else if (rodIndex === 6) placeLabel.textContent = '1M';
+          else if (rodIndex === 7) placeLabel.textContent = '10M';
+          else if (rodIndex === 8) placeLabel.textContent = '100M';
+          else if (rodIndex === 9) placeLabel.textContent = '1B';
+          else if (rodIndex === 10) placeLabel.textContent = '10B';
+          else if (rodIndex === 11) placeLabel.textContent = '100B';
+          else if (rodIndex === 12) placeLabel.textContent = '1T';
+          else placeLabel.textContent = `10^${rodIndex}`;
+
+          indicator.appendChild(badge);
+          indicator.appendChild(placeLabel);
+
+          // Clicking column indicator increments this rod's digit
+          indicator.addEventListener('click', () => {
+            const curVal = getRodValue(rodIndex);
+            setRodDigit(rodIndex, (curVal + 1) % 10, true);
+            updateReadout();
+          });
+
+          rodLabelsFooterEl.appendChild(indicator);
+        }
+
+        // Render initial bead positions
+        renderAllRods();
+        updateReadout();
+      }
+
+      /* ------------------------------------------------------------------------
+         Event Listeners & Global Controls
+         ------------------------------------------------------------------------ */
+      function setupListeners() {
+        btnReset.addEventListener('click', resetAbacus);
+        btnRandom.addEventListener('click', setRandomValue);
+
+        // Download HTML File
+        if (btnDownload) {
+          btnDownload.addEventListener('click', async () => {
+            try {
+              let htmlText = '';
+              try {
+                // Fetch the original pristine index.html file
+                const res = await fetch('/index.html');
+                if (res.ok) {
+                  htmlText = await res.text();
+                }
+              } catch (e) {}
+
+              // Fallback to outerHTML if fetch is restricted
+              if (!htmlText || !htmlText.includes('<!doctype html>')) {
+                htmlText = '<!doctype html>\n' + document.documentElement.outerHTML;
+              }
+
+              const blob = new Blob([htmlText], { type: 'text/html;charset=utf-8' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'soroban-abacus.html';
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              setTimeout(() => URL.revokeObjectURL(url), 2000);
+            } catch (err) {
+              console.error('Download error:', err);
+            }
+          });
+        }
+
+        // Sound Toggle
+        btnSoundToggle.addEventListener('click', () => {
+          soundEnabled = !soundEnabled;
+          soundIcon.textContent = soundEnabled ? '🔊' : '🔇';
+          btnSoundToggle.title = soundEnabled ? 'Sound Enabled (Click to mute)' : 'Sound Muted (Click to enable)';
+        });
+
+        // Digits Badge Toggle
+        btnDigitsToggle.addEventListener('click', () => {
+          showDigitBadges = !showDigitBadges;
+          digitsIcon.textContent = showDigitBadges ? '🔢' : '🙈';
+          updateReadout();
+        });
+
+        // Theme Selector
+        themeSelect.addEventListener('change', (e) => {
+          document.documentElement.setAttribute('data-theme', e.target.value);
+        });
+
+        // Rod Count Selector
+        rodCountSelect.addEventListener('change', (e) => {
+          const newCount = parseInt(e.target.value, 10);
+          if (newCount !== NUM_RODS) {
+            initializeState(newCount);
+            buildAbacusDOM();
+          }
+        });
+
+        // Custom Number Input
+        btnApplyNumber.addEventListener('click', () => {
+          const raw = customNumberInput.value.replace(/[^0-9]/g, '');
+          if (raw.length > 0) {
+            setAbacusValue(raw);
+          }
+        });
+        customNumberInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            btnApplyNumber.click();
+          }
+        });
+
+        // Quick arithmetic delta buttons
+        document.querySelectorAll('.quick-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const op = btn.dataset.op;
+            if (op) {
+              const delta = parseInt(op, 10);
+              applyDelta(delta);
+            }
+          });
+        });
+
+        // Guide Collapsible
+        guideHeader.addEventListener('click', () => {
+          const isOpen = guideCard.classList.toggle('is-open');
+          guideHeader.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+          document.getElementById('guideArrow').style.transform = isOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+        });
+        guideHeader.addEventListener('keydown', (e) => {
+          if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault();
+            guideHeader.click();
+          }
+        });
+
+        // Responsive re-alignment
+        window.addEventListener('resize', () => {
+          renderAllRods();
+        });
+
+        // Global Keyboard shortcuts
+        window.addEventListener('keydown', (e) => {
+          if (document.activeElement === customNumberInput) return;
+
+          if (e.key === 'c' || e.key === 'C') {
+            resetAbacus();
+          } else if (e.key === 'r' || e.key === 'R') {
+            setRandomValue();
+          }
+        });
+      }
+
+      /* ------------------------------------------------------------------------
+         Initialization
+         ------------------------------------------------------------------------ */
+      initializeState(NUM_RODS);
+      buildAbacusDOM();
+      setupListeners();
+
+    })();
+  </script>
+</body>
+</html>
